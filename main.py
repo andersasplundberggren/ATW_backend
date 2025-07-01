@@ -3,7 +3,7 @@ from flask_cors import CORS
 import json
 
 app = Flask(__name__)
-CORS(app)  # Tillåt cross-origin-anrop från GitHub Pages
+CORS(app)  # Viktigt: aktiverar CORS så frontend får hämta data
 
 @app.route('/api/news')
 def get_news():
