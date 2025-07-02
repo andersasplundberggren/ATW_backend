@@ -11,8 +11,18 @@ NEWS_FILE = "news.json"
 SETTINGS_FILE = "settings.json"
 SUBSCRIBERS_FILE = "subscribers.json"
 
-# Adminlösenord (byt ut detta till något säkrare)
+# Adminlösenord (byt till säkert lösen och lagra i miljövariabel i produktion)
 ADMIN_PASSWORD = "mittadminlösen"
+
+def load_json(filepath, default=[]):
+    if not os.path.exists(filepath):
+        return default
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_json(filepath, data):
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 @app.route('/')
 def home():
@@ -21,18 +31,14 @@ def home():
 @app.route('/api/news')
 def get_news():
     try:
-        with open(NEWS_FILE, "r", encoding="utf-8") as f:
-            news = json.load(f)
-        return jsonify(news)
+        return jsonify(load_json(NEWS_FILE))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/settings')
 def get_settings():
     try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            settings = json.load(f)
-        return jsonify(settings)
+        return jsonify(load_json(SETTINGS_FILE))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -45,9 +51,7 @@ def update_settings():
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
+        save_json(SETTINGS_FILE, data)
         return jsonify({"message": "Inställningar uppdaterade"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -55,23 +59,52 @@ def update_settings():
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
-        new_subscriber = request.get_json()
-        if not all(k in new_subscriber for k in ("name", "email", "categories")):
+        new_sub = request.get_json()
+        if not all(k in new_sub for k in ("name", "email", "categories")):
             return jsonify({"error": "Felaktig data"}), 400
 
-        # Läs befintliga prenumeranter eller skapa tom lista
-        if os.path.exists(SUBSCRIBERS_FILE):
-            with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
-                subscribers = json.load(f)
-        else:
-            subscribers = []
+        subscribers = load_json(SUBSCRIBERS_FILE)
 
-        subscribers.append(new_subscriber)
+        # Kontrollera om e-post redan finns
+        if any(sub['email'].lower() == new_sub['email'].lower() for sub in subscribers):
+            return jsonify({"message": "E-postadressen är redan registrerad"}), 400
 
-        with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
-            json.dump(subscribers, f, ensure_ascii=False, indent=2)
+        subscribers.append(new_sub)
+        save_json(SUBSCRIBERS_FILE, subscribers)
 
         return jsonify({"message": "Tack för din prenumeration!"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/subscribers')
+def get_subscribers():
+    try:
+        password = request.headers.get("Authorization")
+        if password != ADMIN_PASSWORD:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        subscribers = load_json(SUBSCRIBERS_FILE)
+        return jsonify(subscribers)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/delete-subscriber', methods=["POST"])
+def delete_subscriber():
+    try:
+        password = request.headers.get("Authorization")
+        if password != ADMIN_PASSWORD:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json()
+        email = data.get("email")
+        if not email:
+            return jsonify({"error": "Ingen e-post angiven"}), 400
+
+        subscribers = load_json(SUBSCRIBERS_FILE)
+        updated = [s for s in subscribers if s["email"].lower() != email.lower()]
+
+        save_json(SUBSCRIBERS_FILE, updated)
+        return jsonify({"message": "Prenumerant borttagen"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
