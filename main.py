@@ -14,11 +14,15 @@ SUBSCRIBERS_FILE = "subscribers.json"
 # Adminlösenord (byt till säkert lösen och lagra i miljövariabel i produktion)
 ADMIN_PASSWORD = "mittadminlösen"
 
+# Hjälpfunktioner
 def load_json(filepath, default=[]):
     if not os.path.exists(filepath):
         return default
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return default
 
 def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f:
@@ -28,6 +32,7 @@ def save_json(filepath, data):
 def home():
     return "Omvärldskollen backend är igång!"
 
+# Nyheter
 @app.route('/api/news')
 def get_news():
     try:
@@ -35,6 +40,7 @@ def get_news():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Inställningar (kategorier/feeds)
 @app.route('/api/settings')
 def get_settings():
     try:
@@ -47,7 +53,6 @@ def update_settings():
     try:
         data = request.get_json()
         password = request.headers.get("Authorization")
-
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
@@ -56,6 +61,7 @@ def update_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Prenumerera
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
@@ -76,6 +82,7 @@ def subscribe():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Visa prenumeranter (admin)
 @app.route('/api/subscribers')
 def get_subscribers():
     try:
@@ -88,6 +95,7 @@ def get_subscribers():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Ta bort prenumerant
 @app.route('/api/delete-subscriber', methods=["POST"])
 def delete_subscriber():
     try:
@@ -102,11 +110,43 @@ def delete_subscriber():
 
         subscribers = load_json(SUBSCRIBERS_FILE)
         updated = [s for s in subscribers if s["email"].lower() != email.lower()]
-
         save_json(SUBSCRIBERS_FILE, updated)
+
         return jsonify({"message": "Prenumerant borttagen"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Uppdatera prenumerant
+@app.route('/api/update-subscriber', methods=["POST"])
+def update_subscriber():
+    try:
+        password = request.headers.get("Authorization")
+        if password != ADMIN_PASSWORD:
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json()
+        email = data.get("email")
+        updated_info = data.get("updated")
+
+        if not email or not updated_info:
+            return jsonify({"error": "Felaktig data"}), 400
+
+        subscribers = load_json(SUBSCRIBERS_FILE)
+        found = False
+        for sub in subscribers:
+            if sub["email"].lower() == email.lower():
+                sub.update(updated_info)
+                found = True
+                break
+
+        if not found:
+            return jsonify({"error": "Prenumerant ej hittad"}), 404
+
+        save_json(SUBSCRIBERS_FILE, subscribers)
+        return jsonify({"message": "Prenumerant uppdaterad"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Start
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
