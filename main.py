@@ -3,7 +3,7 @@ from flask_cors import CORS
 import json
 
 app = Flask(__name__)
-CORS(app)  # Viktigt: aktiverar CORS så frontend får hämta data
+CORS(app)  # Tillåter frontend från GitHub Pages att hämta data
 
 @app.route('/api/news')
 def get_news():
@@ -11,6 +11,15 @@ def get_news():
         with open("news.json", "r", encoding="utf-8") as f:
             news = json.load(f)
         return jsonify(news)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/settings')
+def get_settings():
+    try:
+        with open("settings.json", "r", encoding="utf-8") as f:
+            settings = json.load(f)
+        return jsonify(settings)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
