@@ -1,14 +1,18 @@
-{
-  "sources": [
-    "https://feeds.idg.se/nyteknik",
-    "https://www.nyteknik.se/rss/"
-    "https://aisweden.se/feed"
-    "https://computersweden.idg.se/rss"
-  ],
-  "keywords": [
-    "AI",
-    "digitalisering",
-    "automation",
-    "molntjänster"
-  ]
-}
+[
+  {
+    "category": "Digitalisering",
+    "feeds": [
+      "https://feeds.idg.se/nyteknik",
+      "https://www.aisweden.se/rss.xml"
+    ],
+    "keywords": ["AI", "automation", "data"]
+  },
+  {
+    "category": "Vård och omsorg",
+    "feeds": [
+      "https://www.dagenssamhalle.se/rss/",
+      "https://www.vision.se/feed/"
+    ],
+    "keywords": ["äldreomsorg", "socialtjänst"]
+  }
+]
