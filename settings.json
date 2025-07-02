@@ -1,0 +1,14 @@
+{
+  "sources": [
+    "https://feeds.idg.se/nyteknik",
+    "https://www.nyteknik.se/rss/"
+    "https://aisweden.se/feed"
+    "https://computersweden.idg.se/rss"
+  ],
+  "keywords": [
+    "AI",
+    "digitalisering",
+    "automation",
+    "molntjänster"
+  ]
+}
