@@ -27,5 +27,24 @@ def get_settings():
 def home():
     return "Omvärldskollen backend är igång!"
 
+from flask import request
+
+@app.route('/api/update-settings', methods=['POST'])
+def update_settings():
+    try:
+        data = request.get_json()
+        password = request.headers.get("Authorization")
+
+        # Enkelt skydd – byt ut 'mittadminlösen' till ditt riktiga adminlösenord
+        if password != "mittadminlösen":
+            return jsonify({"error": "Unauthorized"}), 401
+
+        with open("settings.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return jsonify({"message": "Inställningar uppdaterade"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
