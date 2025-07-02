@@ -2,6 +2,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import json
 import os
+import gspread
+from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 CORS(app)
@@ -9,46 +11,43 @@ CORS(app)
 # Filvägar
 NEWS_FILE = "news.json"
 SETTINGS_FILE = "settings.json"
-SUBSCRIBERS_FILE = "subscribers.json"
+GOOGLE_CREDS_FILE = "heylin-nykndy-be48c31bad5d.json"
+SHEET_ID = "1lLszWfygVJXgJ0ZEknls9kVZ01IwC_uhPp4QlM1p1xA"
 
-# Adminlösenord (byt till säkert lösen och lagra i miljövariabel i produktion)
+# Adminlösenord
 ADMIN_PASSWORD = "mittadminlösen"
 
-# Hjälpfunktioner
-def load_json(filepath, default=[]):
-    if not os.path.exists(filepath):
-        return default
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        return default
-
-def save_json(filepath, data):
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# Anslut till Google Sheet
+def get_sheet():
+    creds = Credentials.from_service_account_file(
+        GOOGLE_CREDS_FILE,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(SHEET_ID)
+    return sh.sheet1  # använder första fliken
 
 @app.route('/')
 def home():
     return "Omvärldskollen backend är igång!"
 
-# Nyheter
 @app.route('/api/news')
 def get_news():
     try:
-        return jsonify(load_json(NEWS_FILE))
+        with open(NEWS_FILE, "r", encoding="utf-8") as f:
+            return jsonify(json.load(f))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Inställningar (kategorier/feeds)
 @app.route('/api/settings')
 def get_settings():
     try:
-        return jsonify(load_json(SETTINGS_FILE))
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            return jsonify(json.load(f))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/update-settings', methods=['POST'])
+@app.route('/api/update-settings', methods=["POST"])
 def update_settings():
     try:
         data = request.get_json()
@@ -56,33 +55,35 @@ def update_settings():
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
-        save_json(SETTINGS_FILE, data)
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
         return jsonify({"message": "Inställningar uppdaterade"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Prenumerera
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
-        new_sub = request.get_json()
-        if not all(k in new_sub for k in ("name", "email", "categories")):
+        sub = request.get_json()
+        name = sub.get("name")
+        email = sub.get("email")
+        categories = ", ".join(sub.get("categories", []))
+
+        if not name or not email or not categories:
             return jsonify({"error": "Felaktig data"}), 400
 
-        subscribers = load_json(SUBSCRIBERS_FILE)
+        sheet = get_sheet()
+        existing = sheet.get_all_records()
 
-        # Kontrollera om e-post redan finns
-        if any(sub['email'].lower() == new_sub['email'].lower() for sub in subscribers):
+        if any(row["E-post"].strip().lower() == email.strip().lower() for row in existing):
             return jsonify({"message": "E-postadressen är redan registrerad"}), 400
 
-        subscribers.append(new_sub)
-        save_json(SUBSCRIBERS_FILE, subscribers)
-
+        sheet.append_row([name, email, categories])
         return jsonify({"message": "Tack för din prenumeration!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Visa prenumeranter (admin)
 @app.route('/api/subscribers')
 def get_subscribers():
     try:
@@ -90,12 +91,12 @@ def get_subscribers():
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
-        subscribers = load_json(SUBSCRIBERS_FILE)
-        return jsonify(subscribers)
+        sheet = get_sheet()
+        rows = sheet.get_all_records()
+        return jsonify(rows)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Ta bort prenumerant
 @app.route('/api/delete-subscriber', methods=["POST"])
 def delete_subscriber():
     try:
@@ -103,50 +104,19 @@ def delete_subscriber():
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
-        data = request.get_json()
-        email = data.get("email")
+        email = request.get_json().get("email")
         if not email:
             return jsonify({"error": "Ingen e-post angiven"}), 400
 
-        subscribers = load_json(SUBSCRIBERS_FILE)
-        updated = [s for s in subscribers if s["email"].lower() != email.lower()]
-        save_json(SUBSCRIBERS_FILE, updated)
-
-        return jsonify({"message": "Prenumerant borttagen"})
+        sheet = get_sheet()
+        records = sheet.get_all_records()
+        for i, row in enumerate(records, start=2):  # start=2 pga rubrikrad
+            if row["E-post"].strip().lower() == email.strip().lower():
+                sheet.delete_rows(i)
+                return jsonify({"message": "Prenumerant borttagen"})
+        return jsonify({"error": "E-post hittades inte"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Uppdatera prenumerant
-@app.route('/api/update-subscriber', methods=["POST"])
-def update_subscriber():
-    try:
-        password = request.headers.get("Authorization")
-        if password != ADMIN_PASSWORD:
-            return jsonify({"error": "Unauthorized"}), 401
-
-        data = request.get_json()
-        email = data.get("email")
-        updated_info = data.get("updated")
-
-        if not email or not updated_info:
-            return jsonify({"error": "Felaktig data"}), 400
-
-        subscribers = load_json(SUBSCRIBERS_FILE)
-        found = False
-        for sub in subscribers:
-            if sub["email"].lower() == email.lower():
-                sub.update(updated_info)
-                found = True
-                break
-
-        if not found:
-            return jsonify({"error": "Prenumerant ej hittad"}), 404
-
-        save_json(SUBSCRIBERS_FILE, subscribers)
-        return jsonify({"message": "Prenumerant uppdaterad"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Start
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
