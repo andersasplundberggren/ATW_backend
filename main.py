@@ -11,27 +11,32 @@ CORS(app)
 # Filvägar
 NEWS_FILE = "news.json"
 SETTINGS_FILE = "settings.json"
-GOOGLE_CREDS_FILE = "heylin-nykndy-be48c31bad5d.json"
+
+# Google Sheets inställningar
 SHEET_ID = "1lLszWfygVJXgJ0ZEknls9kVZ01IwC_uhPp4QlM1p1xA"
 
 # Adminlösenord
-ADMIN_PASSWORD = "mittadminlösen"
+ADMIN_PASSWORD = "mittadminlösen"  # byt till säkrare och lägg helst också i miljövariabel
 
-# Anslut till Google Sheet
 def get_sheet():
-    creds = Credentials.from_service_account_file(
-        GOOGLE_CREDS_FILE,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    """Anslut till Google Sheet med creds från miljövariabel."""
+    creds_json = os.environ.get("GOOGLE_CREDS_JSON")
+    if not creds_json:
+        raise ValueError("Miljövariabel GOOGLE_CREDS_JSON saknas")
+
+    creds_dict = json.loads(creds_json)
+    creds = Credentials.from_service_account_info(
+        creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(SHEET_ID)
-    return sh.sheet1  # använder första fliken
+    return sh.sheet1  # första fliken
 
 @app.route('/')
 def home():
     return "Omvärldskollen backend är igång!"
 
-# ---- NYHETER ----
+# ------------------- NEWS -------------------
 @app.route('/api/news')
 def get_news():
     try:
@@ -40,7 +45,7 @@ def get_news():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---- INSTÄLLNINGAR ----
+# ------------------- SETTINGS -------------------
 @app.route('/api/settings')
 def get_settings():
     try:
@@ -52,11 +57,11 @@ def get_settings():
 @app.route('/api/update-settings', methods=["POST"])
 def update_settings():
     try:
-        data = request.get_json()
         password = request.headers.get("Authorization")
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
+        data = request.get_json()
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -64,7 +69,7 @@ def update_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---- PRENUMERATION ----
+# ------------------- SUBSCRIBERS -------------------
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
@@ -79,16 +84,16 @@ def subscribe():
         sheet = get_sheet()
         existing = sheet.get_all_records()
 
-        # Kontrollera om e-post redan finns
+        # Kolla om e-post redan finns
         if any(row["E-post"].strip().lower() == email.strip().lower() for row in existing):
             return jsonify({"message": "E-postadressen är redan registrerad"}), 400
 
+        # Lägg till ny prenumerant
         sheet.append_row([name, email, categories])
         return jsonify({"message": "Tack för din prenumeration!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---- VISA PRENUMERANTER ----
 @app.route('/api/subscribers')
 def get_subscribers():
     try:
@@ -102,7 +107,6 @@ def get_subscribers():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---- TA BORT PRENUMERANT ----
 @app.route('/api/delete-subscriber', methods=["POST"])
 def delete_subscriber():
     try:
@@ -116,7 +120,6 @@ def delete_subscriber():
 
         sheet = get_sheet()
         records = sheet.get_all_records()
-
         for i, row in enumerate(records, start=2):  # start=2 pga rubrikrad
             if row["E-post"].strip().lower() == email.strip().lower():
                 sheet.delete_rows(i)
@@ -125,16 +128,5 @@ def delete_subscriber():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---- TEST-ROUTE ----
-@app.route('/api/test-subscribers')
-def test_subscribers():
-    try:
-        sheet = get_sheet()
-        rows = sheet.get_all_records()
-        return jsonify(rows)  # visar prenumeranter utan lösenord
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# ---- START ----
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
