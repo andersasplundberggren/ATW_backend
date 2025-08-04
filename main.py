@@ -4,27 +4,27 @@ import json
 import os
 import gspread
 from google.oauth2.service_account import Credentials
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
+from io import StringIO
 
 app = Flask(__name__)
 CORS(app)
 
-# Filvägar
+# Filvägar för lokala filer
 NEWS_FILE = "news.json"
 SETTINGS_FILE = "settings.json"
-
-# Google Sheets inställningar
 SHEET_ID = "1lLszWfygVJXgJ0ZEknls9kVZ01IwC_uhPp4QlM1p1xA"
 
-# Adminlösenord
-ADMIN_PASSWORD = "mittadminlösen"  # byt till säkrare och lägg helst också i miljövariabel
+ADMIN_PASSWORD = "mittadminlösen"
 
 def get_sheet():
-    """Anslut till Google Sheet med creds från miljövariabel."""
-    creds_json = os.environ.get("GOOGLE_CREDS_JSON")
-    if not creds_json:
+    """Hämtar Google Sheet-anslutning via miljövariabel"""
+    google_creds_json = os.getenv("GOOGLE_CREDS_JSON")
+    if not google_creds_json:
         raise ValueError("Miljövariabel GOOGLE_CREDS_JSON saknas")
 
-    creds_dict = json.loads(creds_json)
+    creds_dict = json.loads(google_creds_json)
     creds = Credentials.from_service_account_info(
         creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
@@ -36,7 +36,6 @@ def get_sheet():
 def home():
     return "Omvärldskollen backend är igång!"
 
-# ------------------- NEWS -------------------
 @app.route('/api/news')
 def get_news():
     try:
@@ -45,7 +44,6 @@ def get_news():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ------------------- SETTINGS -------------------
 @app.route('/api/settings')
 def get_settings():
     try:
@@ -57,11 +55,11 @@ def get_settings():
 @app.route('/api/update-settings', methods=["POST"])
 def update_settings():
     try:
+        data = request.get_json()
         password = request.headers.get("Authorization")
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
-        data = request.get_json()
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -69,7 +67,6 @@ def update_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ------------------- SUBSCRIBERS -------------------
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
@@ -84,11 +81,10 @@ def subscribe():
         sheet = get_sheet()
         existing = sheet.get_all_records()
 
-        # Kolla om e-post redan finns
+        # Kontrollera om e-post redan finns
         if any(row["E-post"].strip().lower() == email.strip().lower() for row in existing):
             return jsonify({"message": "E-postadressen är redan registrerad"}), 400
 
-        # Lägg till ny prenumerant
         sheet.append_row([name, email, categories])
         return jsonify({"message": "Tack för din prenumeration!"})
     except Exception as e:
