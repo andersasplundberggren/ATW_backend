@@ -8,34 +8,53 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 CORS(app)
 
-# Filvägar
+# Filvägar för lokala filer
 NEWS_FILE = "news.json"
 SETTINGS_FILE = "settings.json"
 
-# Google Sheets
+# Google Sheet ID
 SHEET_ID = "1lLszWfygVJXgJ0ZEknls9kVZ01IwC_uhPp4QlM1p1xA"
 
-# Adminlösenord (TODO: återaktivera när test klart)
+# Adminlösenord (ska bytas till säkert lösenord)
 ADMIN_PASSWORD = "mittadminlösen"
 
-# Hämta Google Sheets-klient från miljövariabel
-def get_sheet():
-    google_creds_json = os.environ.get("GOOGLE_CREDS_JSON")
-    if not google_creds_json:
-        raise FileNotFoundError("Miljövariabel GOOGLE_CREDS_JSON saknas")
-    creds = Credentials.from_service_account_info(
-        json.loads(google_creds_json),
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
-    )
-    gc = gspread.authorize(creds)
-    sh = gc.open_by_key(SHEET_ID)
-    return sh.sheet1  # Första fliken
 
+# ---- Hjälpfunktion: Hämta anslutning till Google Sheet ----
+def get_sheet():
+    try:
+        google_creds_json = os.environ.get("GOOGLE_CREDS_JSON")
+        if not google_creds_json:
+            raise Exception("GOOGLE_CREDS_JSON saknas i miljövariablerna.")
+
+        creds_info = json.loads(google_creds_json)
+        creds = Credentials.from_service_account_info(
+            creds_info,
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(SHEET_ID)
+        return sh.sheet1  # Använder första fliken
+    except Exception as e:
+        raise Exception(f"Fel vid anslutning till Google Sheet: {e}")
+
+
+# ---- Debug-route för att kontrollera att miljövariabeln finns ----
+@app.route('/debug-env')
+def debug_env():
+    val = os.environ.get("GOOGLE_CREDS_JSON")
+    if val:
+        return "GOOGLE_CREDS_JSON är laddad och börjar med: " + val[:40]
+    else:
+        return "GOOGLE_CREDS_JSON saknas!"
+
+
+# ---- Hemroute ----
 @app.route('/')
 def home():
     return "Omvärldskollen backend är igång!"
 
-# --- NEWS ---
+
+# ---- Nyheter från JSON ----
 @app.route('/api/news')
 def get_news():
     try:
@@ -44,7 +63,8 @@ def get_news():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- SETTINGS ---
+
+# ---- Inställningar från JSON ----
 @app.route('/api/settings')
 def get_settings():
     try:
@@ -53,13 +73,14 @@ def get_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# ---- Uppdatera inställningar ----
 @app.route('/api/update-settings', methods=["POST"])
 def update_settings():
     try:
         data = request.get_json()
         password = request.headers.get("Authorization")
 
-        # TODO: Lås med lösenord när vi är klara att testa
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
@@ -70,7 +91,8 @@ def update_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- SUBSCRIBE ---
+
+# ---- Prenumerera (lägg till i Google Sheet) ----
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
@@ -89,44 +111,49 @@ def subscribe():
         if any(row["E-post"].strip().lower() == email.strip().lower() for row in existing):
             return jsonify({"message": "E-postadressen är redan registrerad"}), 400
 
-        # Lägg till prenumerant
         sheet.append_row([name, email, categories])
         return jsonify({"message": "Tack för din prenumeration!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- HÄMTA PRENUMERANTER (lösenord borttaget för test) ---
+
+# ---- Hämta prenumeranter från Google Sheet ----
 @app.route('/api/subscribers')
 def get_subscribers():
     try:
-        # TODO: Lägg tillbaka lösenordskontroll här när klart
+        password = request.headers.get("Authorization")
+        if password != ADMIN_PASSWORD:
+            return jsonify({"error": "Unauthorized"}), 401
+
         sheet = get_sheet()
         rows = sheet.get_all_records()
         return jsonify(rows)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- RADERA PRENUMERANT (lösenord borttaget för test) ---
+
+# ---- Ta bort prenumerant ----
 @app.route('/api/delete-subscriber', methods=["POST"])
 def delete_subscriber():
     try:
-        # TODO: Lägg tillbaka lösenordskontroll här när klart
+        password = request.headers.get("Authorization")
+        if password != ADMIN_PASSWORD:
+            return jsonify({"error": "Unauthorized"}), 401
+
         email = request.get_json().get("email")
         if not email:
             return jsonify({"error": "Ingen e-post angiven"}), 400
 
         sheet = get_sheet()
         records = sheet.get_all_records()
-
-        # Leta rätt rad att ta bort
         for i, row in enumerate(records, start=2):  # start=2 pga rubrikrad
             if row["E-post"].strip().lower() == email.strip().lower():
                 sheet.delete_rows(i)
                 return jsonify({"message": "Prenumerant borttagen"})
-
         return jsonify({"error": "E-post hittades inte"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
