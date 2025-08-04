@@ -8,29 +8,32 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 CORS(app)
 
-# Filvägar
+# ---- Filvägar ----
 NEWS_FILE = "news.json"
 SETTINGS_FILE = "settings.json"
-GOOGLE_CREDS_FILE = "heylin-nykndy-be48c31bad5d.json"
+GOOGLE_CREDS_FILE = "heylin-nykndy-be48c31bad5d.json"  # byt till miljövariabel i produktion
 SHEET_ID = "1lLszWfygVJXgJ0ZEknls9kVZ01IwC_uhPp4QlM1p1xA"
 
-# Adminlösenord
-ADMIN_PASSWORD = "mittadminlösen"
+# ---- Adminlösenord ----
+ADMIN_PASSWORD = "mittadminlösen"  # byt till miljövariabel i produktion
 
-# Anslut till Google Sheet
+# ---- Hjälpfunktioner ----
 def get_sheet():
+    """Anslut till Google Sheet"""
     creds = Credentials.from_service_account_file(
         GOOGLE_CREDS_FILE,
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
-    sh = gc.open_by_key(SHEET_ID)
-    return sh.sheet1  # använder första fliken
+    return gc.open_by_key(SHEET_ID).sheet1  # första fliken
+
+# ---- Routes ----
 
 @app.route('/')
 def home():
     return "Omvärldskollen backend är igång!"
 
+# --- Nyheter ---
 @app.route('/api/news')
 def get_news():
     try:
@@ -39,6 +42,7 @@ def get_news():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- Inställningar ---
 @app.route('/api/settings')
 def get_settings():
     try:
@@ -52,6 +56,7 @@ def update_settings():
     try:
         data = request.get_json()
         password = request.headers.get("Authorization")
+
         if password != ADMIN_PASSWORD:
             return jsonify({"error": "Unauthorized"}), 401
 
@@ -62,6 +67,7 @@ def update_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- Prenumerera ---
 @app.route('/api/subscribe', methods=["POST"])
 def subscribe():
     try:
@@ -70,20 +76,24 @@ def subscribe():
         email = sub.get("email")
         categories = ", ".join(sub.get("categories", []))
 
+        # Validering
         if not name or not email or not categories:
             return jsonify({"error": "Felaktig data"}), 400
 
         sheet = get_sheet()
         existing = sheet.get_all_records()
 
-        if any(row["E-post"].strip().lower() == email.strip().lower() for row in existing):
+        # Kontrollera om e-post redan finns
+        if any(row.get("E-post", "").strip().lower() == email.strip().lower() for row in existing):
             return jsonify({"message": "E-postadressen är redan registrerad"}), 400
 
+        # Lägg till ny prenumerant
         sheet.append_row([name, email, categories])
         return jsonify({"message": "Tack för din prenumeration!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- Hämta prenumeranter ---
 @app.route('/api/subscribers')
 def get_subscribers():
     try:
@@ -93,10 +103,21 @@ def get_subscribers():
 
         sheet = get_sheet()
         rows = sheet.get_all_records()
-        return jsonify(rows)
+
+        # Säkerställ att vi returnerar rätt format
+        subscribers = []
+        for row in rows:
+            subscribers.append({
+                "name": row.get("Namn", ""),
+                "email": row.get("E-post", ""),
+                "categories": [c.strip() for c in row.get("Kategorier", "").split(",") if c.strip()]
+            })
+
+        return jsonify(subscribers)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# --- Ta bort prenumerant ---
 @app.route('/api/delete-subscriber', methods=["POST"])
 def delete_subscriber():
     try:
@@ -110,13 +131,17 @@ def delete_subscriber():
 
         sheet = get_sheet()
         records = sheet.get_all_records()
-        for i, row in enumerate(records, start=2):  # start=2 pga rubrikrad
-            if row["E-post"].strip().lower() == email.strip().lower():
+
+        # Leta upp rätt rad (start=2 pga rubrikrad i rad 1)
+        for i, row in enumerate(records, start=2):
+            if row.get("E-post", "").strip().lower() == email.strip().lower():
                 sheet.delete_rows(i)
                 return jsonify({"message": "Prenumerant borttagen"})
+
         return jsonify({"error": "E-post hittades inte"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ---- Start ----
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
